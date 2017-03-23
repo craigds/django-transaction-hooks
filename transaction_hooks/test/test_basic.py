@@ -1,4 +1,4 @@
-from django.db import connection
+from django.db import connection, transaction
 from django.db.transaction import atomic
 import pytest
 
@@ -230,3 +230,17 @@ class TestConnectionOnCommit(object):
             connection.on_commit(on_commit)
 
         track.assert_done([1])
+
+    def test_hook_in_hook(self, track):
+        def on_commit(i, add_hook):
+            with transaction.atomic():
+                if add_hook:
+                    connection.on_commit(lambda: on_commit(i + 10, False))
+                t = Thing.objects.create(num=i)
+                track.notify(t.num)
+
+        with transaction.atomic():
+            connection.on_commit(lambda: on_commit(1, True))
+            connection.on_commit(lambda: on_commit(2, True))
+
+        track.assert_done([1, 11, 2, 12])
